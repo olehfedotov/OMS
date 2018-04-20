@@ -1,0 +1,7 @@
+---
+# from galaxy ( ansible-galaxy install -r requirements.yml -p ./roles )
+- src: geerlingguy.java
+- src: geerlingguy.jenkins
+- src: geerlingguy.mysql
+- src: zaxos.tomcat-ansible-role
+- src: geerlingguy.git

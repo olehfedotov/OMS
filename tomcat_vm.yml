@@ -1,0 +1,32 @@
+- name: Configure Tomcat
+  hosts: tomcat
+  become: yes
+  vars:
+    java_packages:
+      - java-1.8.0-openjdk
+    mysql_root_password: password
+    mysql_root_password_update: yes
+    mysql_port: "3306"
+    mysql_bind_address: 0.0.0.0
+    mysql_databases:
+      - name: omsdb
+        encoding: latin1
+        collation: latin1_general_ci
+    mysql_users:
+      - name: oms
+        host: "%"
+        password: oms
+        priv: "omsdb.*:ALL"
+    tomcat_version: 8.5.23
+    tomcat_permissions_production: False
+    tomcat_users:
+      - username: "tomcat"
+        password: "tomcat"
+        roles: "tomcat,admin,manager,manager-gui,manager-script"
+      - username: "user"
+        password: "user"
+        roles: "tomcat" 
+  roles:
+    - geerlingguy.java
+    - geerlingguy.mysql
+    - zaxos.tomcat-ansible-role

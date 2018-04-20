@@ -1,0 +1,102 @@
+- name: Configure Jenkins
+  hosts: jenkins
+  become: yes
+  vars:
+    java_packages:
+      - java-1.8.0-openjdk
+    jenkins_plugins:
+      - jdk-tool
+      - maven-plugin
+      - git
+      - deploy 
+      - postbuild-task     
+    jenkins_plugin_timeout: 60
+    mysql_root_password: password
+    mysql_root_password_update: yes
+    mysql_port: 3306
+    mysql_bind_address: 127.0.0.1
+    mysql_databases:
+      - name: omsdb
+        encoding: latin1
+        collation: latin1_general_ci
+    mysql_users:
+      - name: oms
+        host: "%"
+        password: oms
+        priv: "omsdb.*:ALL"
+  roles:
+    - geerlingguy.git
+    - geerlingguy.java
+    - geerlingguy.jenkins
+    - geerlingguy.mysql
+  tasks:
+    - name: Configure Jenkins Maven
+      template:
+        src: hudson.tasks.Maven.xml.j2
+        dest: "{{ jenkins_home }}/hudson.tasks.Maven.xml"
+        owner: jenkins
+        group: jenkins
+        mode: 0644
+    - name: Configure Jenkins JDK
+      template:
+        src: hudson.tools.JDKInstaller.xml.j2
+        dest: "{{ jenkins_home }}/hudson.tools.JDKInstaller.xml"
+        owner: jenkins
+        group: jenkins
+        mode: 0644
+    - template:
+        src: config.xml.j2
+        dest: /tmp/config.xml
+    - name: Ansible blockinfile insertbefore
+      blockinfile:
+        dest: /var/lib/jenkins/config.xml
+        marker: ""
+        block: |
+          <jdks>
+            <jdk>
+              <name>java8</name>
+              <home></home>
+              <properties>
+                <hudson.tools.InstallSourceProperty>
+                  <installers>
+                    <hudson.tools.JDKInstaller plugin="jdk-tool@1.1">
+                      <id>jdk-8u172-oth-JPR</id>
+                      <acceptLicense>true</acceptLicense>
+                    </hudson.tools.JDKInstaller>
+                  </installers>
+                </hudson.tools.InstallSourceProperty>
+              </properties>
+            </jdk>
+          </jdks>  
+        insertbefore: <jdks/>
+    - name: Ansible lineinfile
+      lineinfile:
+        path: /var/lib/jenkins/config.xml
+        state: absent
+        regexp: "<jdks/>"  
+    - meta: flush_handlers
+    - name: Wait for Jenkins to start up before proceeding.
+      shell: curl -D - --silent --max-time 5 http://{{ jenkins_hostname }}:{{ jenkins_http_port }}{{ jenkins_url_prefix }}/cli/
+      register: result
+      until: (result.stdout.find("403 Forbidden") != -1) or (result.stdout.find("200 OK") != -1) and (result.stdout.find("Please wait while") == -1)
+      retries: "{{ jenkins_connection_retries }}"
+      delay: "{{ jenkins_connection_delay }}"
+      changed_when: false
+      check_mode: no
+    - name: Create Jenkins credentials
+      shell: |
+        curl -X POST 'http://admin:admin@{{ jenkins_hostname }}:{{ jenkins_http_port }}/credentials/store/system/domain/_/createCredentials' --data-urlencode 'json={  
+          "": "0",
+          "credentials": {
+            "scope": "GLOBAL",
+            "id": "tomcat",
+            "username": "tomcat",
+            "password": "tomcat",
+            "description": "tomcat",
+            "stapler-class": "com.cloudbees.plugins.credentials.impl.UsernamePasswordCredentialsImpl"
+          }
+        }'
+    - name: Create job OMS by Jenkins-CLI
+      shell: java -jar /opt/jenkins-cli.jar -s http://{{ jenkins_hostname }}:{{ jenkins_http_port }} -auth admin:admin create-job OMS < /tmp/config.xml
+    - name: Build job OMS by Jenkins-CLI
+      command: java -jar /opt/jenkins-cli.jar -s http://{{ jenkins_hostname }}:{{ jenkins_http_port }} -auth admin:admin build OMS
